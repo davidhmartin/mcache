@@ -1,0 +1,60 @@
+# mcache
+
+A protocol-based interface to memory cache clients, with an initial
+implementation backed by spymemcached.
+
+## Usage
+
+Construct the client. For example:
+    (def mc (net.spy.memcached.MemcachedClient. (list (java.net.InetSocketAddress. "127.0.0.1" 11211))))
+
+Example of basic set/get/delete usage:
+  (cache-set mc "foo" "this is a cached value")
+  ...
+  (cache-get mc "foo)
+  ...
+  (cache-delete mc "foo")
+
+You can do bulk sets by passing a map of key->value:
+  (cache-set-all mc {"foo" "this is foo value" 
+                     "bar" "this is bar value" 
+                     "anumber" 42})
+
+You can do bulk gets, passing a sequence of keys:
+  (cache-get-all mc ["foo" "bar" "anumber"])
+
+And bulk deletes:
+  (cache-delete-all mc ["foo" "anumber"])
+
+Increment:
+  (cache-incr "foo")  ;; increments by 1
+  (cache-incr "foo" 10) ;; increments by 10
+  (cache-incr "foo" 1 1) ;; increments by 1, or sets to one if "foo" is not in cache 
+  (cache-incr "foo" 1 1 60) ;; same as above, but if the default is added, it expires in 60 sec.
+  
+Decrement (note that the 'floor' of decrement is 0): 
+  (cache-decr "foo") ;; decrements by 1
+  (cache-decr "foo" 10) ;; decrements by 10
+  (cache-decr "foo" 1 100) ;; decrement by 1, or set to 100 if "foo" not in cache
+  (cache-decr "foo" 1 100 60) ;; same as above, but if the default is added, it expires in 60 sec.
+
+Expirations:
+  Operations that associate a value with a key (add, set, replace,
+  etc) take an optional 'exp' argument, representing expiration in
+  seconds. If omitted, a default is used. In the case of the
+  spymemcached implementation, the default expiration is 30 days.
+
+Functionality not covered by the protocol is invoked via the usual
+Java interop. For example:
+  (.. mc (flush))
+
+
+
+TODO:
+  Cache-and-set operations, and append/prepend, should be added to the protocol.
+
+## License
+
+Copyright (C) 2012 David H. Martin
+
+Distributed under the Eclipse Public License, the same as Clojure.
