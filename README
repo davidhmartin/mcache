@@ -5,7 +5,7 @@ implementation backed by spymemcached.
 
 ## Usage
 
-Construct the client. For example:
+Construct the client:
     (def mc (net.spy.memcached.MemcachedClient. (list (java.net.InetSocketAddress. "127.0.0.1" 11211))))
 
 Example of basic set/get/delete usage:
