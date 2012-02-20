@@ -127,7 +127,6 @@ to the protocol implementation, is used."
     (letfn [(add-to-cache
               [mc id2val key-fn exp]
               (doseq [[id val] id2val]
-                (println (str "ID: " id " KEY: " (key-fn id)))
                 (cache-add mc (key-fn id) val exp)))
             (from-cache
               [mc ids key-fn]
