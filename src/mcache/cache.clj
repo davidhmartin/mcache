@@ -1,55 +1,62 @@
 (ns mcache.cache
   "Protocol for memory cache, and spymemcached implementation"
-  (:require [clojure.set]))
-
+  (:use [clojure.core.cache :only (defcache)])
+  (:require [clojure.set]
+            [clojure.core.cache]
+            )
+  (:import [clojure.core.cache CacheProtocol])
+  )
 
 (defprotocol Memcache
-  "This is a protocol for memcached and similar cache clients. The
-functions which add to the cache include an 'exp' parameter, which is
-the expiration in seconds. If omitted, a default expiration, specific
-to the protocol implementation, is used."
+  "This is a protocol for memcached and similar cache clients.
 
-  (default-exp [mc])
+   The functions which insert values into the cache may optionally
+   accept an expiration, the semantics of which depend on the
+   protocol implementation."
+
+
+  (default-exp [mc]
+    "Return the default expiration")
   
-  (cache-add
+  (put-if-absent 
     [mc key value]
     [mc key value exp]
     "Add a key/value to the cache, if the key is not already there."
     )
   
-  (cache-add-all
+  (put-all-if-absent
     [mc key-val-map]
     [mc key-val-map exp]
     "Add multiple keys/values to the cache, if not already there.")
   
-  (cache-set
+  (put
     [mc key value]
     [mc key value exp]
     "Set a key/value. If a value is already cached with that key, it is replaced.")
   
-  (cache-set-all
+  (put-all
     [mc key-val-map]
     [mc key-val-map exp]
     "Sets multiple keys/values, overwriting existing values if any.")
   
-  (cache-replace
+  (put-if-present
     [mc key value]
     [mc key value exp]
     "Replaces an object with the given value, but only if there is already a value for that key.")
   
-  (cache-replace-all
+  (put-all-if-present
     [mc key-val-map]
     [mc key-val-map exp]
     "Replaces multiple values")
 
-  (cache-delete
+  (delete
     [mc key]
     "Deletes a key from the cache")
   
-  (cache-delete-all [mc keys]
+  (delete-all [mc keys]  ;; delete-all
     "Deletes multiple keys")
 
-  (cache-incr
+  (incr
     [mc key]
     [mc key by]
     [mc key by default]
@@ -58,7 +65,7 @@ to the protocol implementation, is used."
     the amount to increment (1 if not specified.) If default is not
     specified, counter must exist.")
   
-  (cache-decr
+  (decr
     [mc key]
     [mc key by]
     [mc key by default]
@@ -67,16 +74,14 @@ to the protocol implementation, is used."
     the amount to increment (1 if not specified.) If default is not
     specified, counter must exist.")
 
-  (cache-get
+  (fetch
     [mc key]
     "Gets value for key.")
 
-  (cache-get-all
+  (fetch-all
     [mc keys]
     "Gets values for keys. Returns a map of keys to values, omitting
-    keys that are not in the cache.")
-
-)
+    keys that are not in the cache."))
 
 
 (defmacro with-cache
@@ -84,16 +89,16 @@ to the protocol implementation, is used."
    if not found, uses value-fn to obtain the value and adds it to cache
    before returning."
   ([mc key value-fn]
-      `(if-let [cached-val# (cache-get ~mc ~key)]
+      `(if-let [cached-val# (fetch ~mc ~key)]
          cached-val#
          (let [val# ~value-fn]
-           (cache-add ~mc ~key val#)
+           (put-if-absent ~mc ~key val#)
            val#)))
   ([mc key value-fn exp]
-      `(if-let [cached-val# (cache-get ~mc ~key)]
+      `(if-let [cached-val# (fetch ~mc ~key)]
          cached-val#
          (let [val# ~value-fn]
-           (cache-add ~mc ~key val# ~exp)
+           (put-if-absent ~mc ~key val# ~exp)
            val#)))
   )
 
@@ -108,10 +113,10 @@ to the protocol implementation, is used."
     will first attempt to locate the object in cache; if not found, it
     uses query-fn to get the object and caches it before returning.
     Returns nil if object is not found at all."
-    (if-let [cached-obj (cache-get mc (key-fn id))]
+    (if-let [cached-obj (fetch mc (key-fn id))]
       cached-obj
       (when-let [obj (query-fn id)]
-        (cache-add mc (key-fn id) obj exp)
+        (put-if-absent mc (key-fn id) obj exp)
         obj))))
 
 (defn- remove-nil-vals [map]
@@ -127,11 +132,11 @@ to the protocol implementation, is used."
     (letfn [(add-to-cache
               [mc id2val key-fn exp]
               (doseq [[id val] id2val]
-                (cache-add mc (key-fn id) val exp)))
+                (put-if-absent mc (key-fn id) val exp)))
             (from-cache
               [mc ids key-fn]
               (let [keys (map key-fn ids)]
-                (clojure.set/rename-keys (cache-get-all mc keys) (zipmap keys ids))))]
+                (clojure.set/rename-keys (fetch-all mc keys) (zipmap keys ids))))]
       (let [fromcache (from-cache mc ids key-fn)
             ids-to-query (remove #(contains? fromcache %) ids)
             fromquery (if (empty? ids-to-query) {} (remove-nil-vals (query-fn ids-to-query)))]
@@ -142,7 +147,7 @@ to the protocol implementation, is used."
 
 
 
-(def *EXP* (* 60 60 24 30))
+(def EXP (* 60 60 24 30))
 
 (defn- cache-update-multi
   "Used by add, set, and replace functions which operate on map of key/value pairs.
@@ -156,48 +161,48 @@ to the protocol implementation, is used."
 (extend-type net.spy.memcached.MemcachedClient
   Memcache
 
-  (default-exp [mc] *EXP*)
+  (default-exp [mc] EXP)
   
-  (cache-add
+  (put-if-absent
     ([mc key value]
-       (cache-add mc key value *EXP*))
+       (put-if-absent mc key value EXP))
     ([mc key value exp]
        (.. mc (add key exp value))))
   
-  (cache-add-all
+  (put-all-if-absent
     ([mc key-val-map]
-       (cache-add-all mc key-val-map *EXP*))
+       (put-all-if-absent mc key-val-map EXP))
     ([mc key-val-map exp]
-       (cache-update-multi cache-add mc key-val-map exp)))
+       (cache-update-multi put-if-absent mc key-val-map exp)))
   
-  (cache-set
+  (put
     ([mc key value]
-       (.. mc (set key *EXP* value)))
+       (.. mc (set key EXP value)))
     ([mc key value exp]
        (.. mc (set key exp value))))
   
-  (cache-set-all
-    ([mc key-val-map] (cache-set-all mc key-val-map *EXP*))
+  (put-all
+    ([mc key-val-map] (put-all mc key-val-map EXP))
     ([mc key-val-map exp]
-       (cache-update-multi cache-set mc key-val-map exp)))
+       (cache-update-multi put mc key-val-map exp)))
   
-  (cache-replace
-    ([mc key value] (cache-replace mc key value *EXP*))
+  (put-if-present
+    ([mc key value] (put-if-present mc key value EXP))
     ([mc key value exp]
        (.. mc (replace key exp value))))
   
-  (cache-replace-all
-    ([mc key-val-map] (cache-replace-all mc key-val-map *EXP*))
+  (put-all-if-present
+    ([mc key-val-map] (put-all-if-present mc key-val-map EXP))
     ([mc key-val-map exp]
-       (cache-update-multi cache-replace mc key-val-map exp)))
+       (cache-update-multi put-if-present mc key-val-map exp)))
 
-  (cache-delete [mc key]
+  (delete [mc key]
     (.. mc (delete key)))
   
-  (cache-delete-all [mc keys]
-    (doall (map #(cache-delete mc %) keys)))
+  (delete-all [mc keys]
+    (doall (map #(delete mc %) keys)))
 
-  (cache-incr
+  (incr
     ([mc key]
        (.. mc (incr key 1)))
     ([mc key by]
@@ -207,7 +212,7 @@ to the protocol implementation, is used."
     ([mc key by default exp]
        (.. mc (incr key by default exp))))
   
-  (cache-decr
+  (decr
     ([mc key]
        (.. mc (decr key 1)))
     ([mc key by]
@@ -217,10 +222,120 @@ to the protocol implementation, is used."
     ([mc key by default exp]
        (.. mc (decr key by default exp))))
   
-  (cache-get [mc key]
+  (fetch [mc key]
     (.. mc (get key)))
 
-  (cache-get-all [mc keys]
+  (fetch-all [mc keys]
     (into {} (.. mc (getBulk keys)))) 
 
-)
+  )
+
+
+
+(defcache MemcachedCache [mc]
+  CacheProtocol
+  (lookup
+   [this e]
+   (fetch mc e))
+
+  (has?    [this e]
+    "Memcached does provide ability to test existence of a key without
+     fetching the entire value, so this function has no performance
+     advantage over lookup."
+    (not (nil? (fetch mc e))))
+  
+  (hit     [this e]
+   "Is meant to be called if the cache is determined to contain a value
+   associated with `e`"
+    this)
+  
+  (miss    [this e ret]
+   "Is meant to be called if the cache is determined to **not** contain a
+   value associated with `e`"
+   (put mc e ret)
+   this)
+  
+  (evict  [this e]
+    "Removes an entry from the cache"
+    (delete mc e)
+    this)
+  
+  (seed    [this base]
+   "Is used to signal that the cache should be created with a seed.
+   The contract is that said cache should return an instance of its
+   own type."
+   (put-all mc base)
+   this
+   )
+
+
+  ;; Memcache
+  ;; (default-exp [mc] EXP)
+  
+  ;; (put-if-absent
+  ;;   ([mc key value]
+  ;;      (put-if-absent mc key value EXP))
+  ;;   ([mc key value exp]
+  ;;      (.. mc (add key exp value))))
+  
+  ;; (put-all-if-absent
+  ;;   ([mc key-val-map]
+  ;;      (put-all-if-absent mc key-val-map EXP))
+  ;;   ([mc key-val-map exp]
+  ;;      (cache-update-multi put-if-absent mc key-val-map exp)))
+  
+  ;; (put
+  ;;   ([mc key value]
+  ;;      (.. mc (set key EXP value)))
+  ;;   ([mc key value exp]
+  ;;      (.. mc (set key exp value))))
+  
+  ;; (put-all
+  ;;   ([mc key-val-map] (put-all mc key-val-map EXP))
+  ;;   ([mc key-val-map exp]
+  ;;      (cache-update-multi put mc key-val-map exp)))
+  
+  ;; (put-if-present
+  ;;   ([mc key value] (put-if-present mc key value EXP))
+  ;;   ([mc key value exp]
+  ;;      (.. mc (replace key exp value))))
+  
+  ;; (put-all-if-present
+  ;;   ([mc key-val-map] (put-all-if-present mc key-val-map EXP))
+  ;;   ([mc key-val-map exp]
+  ;;      (cache-update-multi put-if-present mc key-val-map exp)))
+
+  ;; (delete [mc key]
+  ;;   (.. mc (delete key)))
+  
+  ;; (delete-all [mc keys]
+  ;;   (doall (map #(delete mc %) keys)))
+
+  ;; (incr
+  ;;   ([mc key]
+  ;;      (.. mc (incr key 1)))
+  ;;   ([mc key by]
+  ;;      (.. mc (incr key by)))
+  ;;   ([mc key by default]
+  ;;      (.. mc (incr key by default)))
+  ;;   ([mc key by default exp]
+  ;;      (.. mc (incr key by default exp))))
+  
+  ;; (decr
+  ;;   ([mc key]
+  ;;      (.. mc (decr key 1)))
+  ;;   ([mc key by]
+  ;;      (.. mc (decr key by)))
+  ;;   ([mc key by default]
+  ;;      (.. mc (decr key by default)))
+  ;;   ([mc key by default exp]
+  ;;      (.. mc (decr key by default exp))))
+  
+  ;; (fetch [mc key]
+  ;;   (.. mc (get key)))
+
+  ;; (fetch-all [mc keys]
+  ;;   (into {} (.. mc (getBulk keys)))) 
+
+
+  )
