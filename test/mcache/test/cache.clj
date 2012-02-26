@@ -1,12 +1,13 @@
 (ns mcache.test.cache
   (:use [mcache.cache])
   (:use [clojure.test])
+  ;; (:require [clojure.core.cache.tests :as coretests])
   (:import [clojure.core.cache CacheProtocol]
            [mcache.cache MemcachedCache])
 )
 
 (def mc (net.spy.memcached.MemcachedClient. (list (java.net.InetSocketAddress. "127.0.0.1" 11211))))
-(def mcache (MemcachedCache. mc))
+(def mcache (make-memcached-cache mc))
 
 (defn clear-cache-fixture
   "Flushes the cache before and after. NOTE: Flush is asynchronous, so
@@ -177,3 +178,22 @@
     (is (= 1 (CacheProtocol/.lookup mcache "a")))))
 
 
+
+
+;; (deftest test-memcached-cache-ilookup
+;;   (testing "that the MemcachedCache can lookup via keywords"
+;;     (coretests/do-ilookup-tests (seed (MemcachedCache. mc) coretests/small-map)))
+;;   (testing "that the MemcachedCache can .lookup"
+;;     (coretests/do-dot-lookup-tests (seed (MemcachedCache. mc) coretests/small-map)))
+;;   (testing "assoc and dissoc for MemcachedCache"
+;;     (coretests/do-assoc (MemcachedCache. mc))
+;;     (coretests/do-dissoc (seed (MemcachedCache. mc) {:a 1 :b 2})))
+;;   (testing "that get and cascading gets work for MemcachedCache"
+;;     (coretests/do-getting (seed (MemcachedCache. mc) coretests/big-map)))
+;;   (testing "that finding works for MemcachedCache"
+;;     (coretests/do-finding (seed (MemcachedCache. mc) coretests/small-map)))
+;;   (testing "that contains? works for BasicCache"
+;;     (coretests/do-contains (BasicCache. coretests/small-map))))
+
+
+;; (.valAt mcache "x" (assoc mcache "x" 13))

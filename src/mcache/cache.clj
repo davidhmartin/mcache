@@ -2,8 +2,7 @@
   "Protocol for memory cache, and spymemcached implementation"
   (:use [clojure.core.cache :only (defcache)])
   (:require [clojure.set]
-            [clojure.core.cache]
-            )
+            [clojure.core.cache])
   (:import [clojure.core.cache CacheProtocol])
   )
 
@@ -231,8 +230,7 @@
   )
 
 
-
-(defcache MemcachedCache [mc]
+(defcache MemcachedCache [mc exp]
   CacheProtocol
   (lookup
    [this e]
@@ -269,73 +267,95 @@
    )
 
 
-  ;; Memcache
-  ;; (default-exp [mc] EXP)
+  Memcache
+  (default-exp [mc] EXP)
   
-  ;; (put-if-absent
-  ;;   ([mc key value]
-  ;;      (put-if-absent mc key value EXP))
-  ;;   ([mc key value exp]
-  ;;      (.. mc (add key exp value))))
+  (put-if-absent
+   [this key value exp]
+   (.. mc (add key exp value)))
   
-  ;; (put-all-if-absent
-  ;;   ([mc key-val-map]
-  ;;      (put-all-if-absent mc key-val-map EXP))
-  ;;   ([mc key-val-map exp]
-  ;;      (cache-update-multi put-if-absent mc key-val-map exp)))
+  (put-if-absent
+   [this key value]
+   (.. mc (add key EXP value)))
   
-  ;; (put
-  ;;   ([mc key value]
-  ;;      (.. mc (set key EXP value)))
-  ;;   ([mc key value exp]
-  ;;      (.. mc (set key exp value))))
+  (put-all-if-absent
+   [this key-val-map]
+   (put-all-if-absent this key-val-map EXP))
   
-  ;; (put-all
-  ;;   ([mc key-val-map] (put-all mc key-val-map EXP))
-  ;;   ([mc key-val-map exp]
-  ;;      (cache-update-multi put mc key-val-map exp)))
+  (put-all-if-absent
+   [this key-val-map exp]
+   (cache-update-multi put-if-absent this key-val-map exp))
   
-  ;; (put-if-present
-  ;;   ([mc key value] (put-if-present mc key value EXP))
-  ;;   ([mc key value exp]
-  ;;      (.. mc (replace key exp value))))
+  (put
+   [this key value]
+   (println "put value: " value " of type: " (class value)) 
+   (.. mc (set key EXP value)))
+  (put
+   [this key value exp]
+   (.. mc (set key exp value)))
   
-  ;; (put-all-if-present
-  ;;   ([mc key-val-map] (put-all-if-present mc key-val-map EXP))
-  ;;   ([mc key-val-map exp]
-  ;;      (cache-update-multi put-if-present mc key-val-map exp)))
+  (put-all
+   [this key-val-map]
+   (put-all mc key-val-map EXP))
+  
+  (put-all
+   [this key-val-map exp]
+   (cache-update-multi put mc key-val-map exp))
 
-  ;; (delete [mc key]
-  ;;   (.. mc (delete key)))
-  
-  ;; (delete-all [mc keys]
-  ;;   (doall (map #(delete mc %) keys)))
+  (put-if-present
+   [this key value]
+   (put-if-present mc key value EXP))
 
-  ;; (incr
-  ;;   ([mc key]
-  ;;      (.. mc (incr key 1)))
-  ;;   ([mc key by]
-  ;;      (.. mc (incr key by)))
-  ;;   ([mc key by default]
-  ;;      (.. mc (incr key by default)))
-  ;;   ([mc key by default exp]
-  ;;      (.. mc (incr key by default exp))))
+  (put-if-present
+   [this key value exp]
+   (.. mc (replace key exp value)))
   
-  ;; (decr
-  ;;   ([mc key]
-  ;;      (.. mc (decr key 1)))
-  ;;   ([mc key by]
-  ;;      (.. mc (decr key by)))
-  ;;   ([mc key by default]
-  ;;      (.. mc (decr key by default)))
-  ;;   ([mc key by default exp]
-  ;;      (.. mc (decr key by default exp))))
+  (put-all-if-present
+   [this key-val-map]
+   (put-all-if-present mc key-val-map EXP))
+
+  (put-all-if-present
+   [this key-val-map exp]
+   (cache-update-multi put-if-present mc key-val-map exp))
+
+  (delete
+   [this key]
+   (.. mc (delete key)))
   
-  ;; (fetch [mc key]
-  ;;   (.. mc (get key)))
+  (delete-all
+   [this keys]
+   (doall (map #(delete mc %) keys)))
 
-  ;; (fetch-all [mc keys]
-  ;;   (into {} (.. mc (getBulk keys)))) 
-
+  (incr [this key]
+        (.. mc (incr key 1)))
+  (incr [this key by]
+        (.. mc (incr key by)))
+  (incr [this key by default]
+        (.. mc (incr key by default)))
+  (incr [this key by default exp]
+        (.. mc (incr key by default exp)))
+  
+  (decr [this key]
+        (.. mc (decr key 1)))
+  (decr [this key by]
+        (.. mc (decr key by)))
+  (decr [this key by default]
+        (.. mc (decr key by default)))
+  (decr [this key by default exp]
+        (.. mc (decr key by default exp)))
+  
+  (fetch
+   [this key]
+   (.. mc (get key)))
+  
+  (fetch-all
+   [this keys]
+   (into {} (.. mc (getBulk keys)))) 
 
   )
+
+
+(defn make-memcached-cache
+  ([mc] (make-memcached-cache mc (* 60 60 24 30)) )
+  ([mc expiration] (MemcachedCache. mc expiration)))
+
