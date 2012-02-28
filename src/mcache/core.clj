@@ -1,10 +1,10 @@
-(ns mcache.cache
+(ns mcache.core
   "Protocol for memory cache, and spymemcached implementation"
-  (:use [clojure.core.cache :only (defcache)])
+  (:use [clojure.core.cache :only (defcache)]
+        [mcache.util :only (cache-update-multi)])
   (:require [clojure.set]
             [clojure.core.cache])
-  (:import [clojure.core.cache CacheProtocol])
-  )
+  (:import [clojure.core.cache CacheProtocol]))
 
 (def DEFAULT-EXP (* 60 60 24 30))
 
@@ -59,24 +59,6 @@
   (delete-all [mc keys]  ;; delete-all
     "Deletes multiple keys")
 
-  (incr
-    [mc key]
-    [mc key by]
-    [mc key by default]
-    [mc key by default exp]
-    "Increments a long int counter associated with the key. 'by' is
-    the amount to increment (1 if not specified.) If default is not
-    specified, counter must exist.")
-  
-  (decr
-    [mc key]
-    [mc key by]
-    [mc key by default]
-    [mc key by default exp]
-    "Increments a long int counter associated with the key. 'by' is
-    the amount to increment (1 if not specified.) If default is not
-    specified, counter must exist.")
-
   (fetch
     [mc key]
     "Gets value for key.")
@@ -86,9 +68,7 @@
     "Gets values for keys. Returns a map of keys to values, omitting
     keys that are not in the cache.")
 
-  (clear [mc] "clear the cache")
-
-  )
+  (clear [mc] "clear the cache"))
 
 (defmacro with-cache
   "key is a string, value-fn is a function. Returns keyed value from cache;
@@ -113,8 +93,8 @@
                val#
                (fetch ~cache ~key)))))))
 
-(defn cache-fetch
- ([cache id query-fn key-fn] (cache-fetch cache id query-fn key-fn (default-exp cache)))
+(defn cache-backed-lookup
+ ([cache id query-fn key-fn] (cache-backed-lookup cache id query-fn key-fn (default-exp cache)))
  ([cache id query-fn key-fn exp]
     "To be used in conjunction with a persistent storage api. 'id' is
     a unique identifier (e.g. a primary key) for a persisted object.
@@ -133,9 +113,9 @@
 (defn- remove-nil-vals [map]
   (reduce #(if (nil? (second %2)) %1 (assoc %1 (first %2) (second %2))) {} map))
 
-(defn cache-fetch-all
+(defn cache-backed-lookup-all
   [cache ids query-fn key-fn]
-  "This is similar to cache-fetch, except it handles a sequence of
+  "This is similar to cache-backed-lookup, except it handles a sequence of
      ids. Returns a sequence containing the resolved objects, or nil for
      not-found objects, in the same order as the original sequence of
      ids."
@@ -152,95 +132,6 @@
           fromquery (if (empty? ids-to-query) {} (remove-nil-vals (query-fn ids-to-query)))]
       (add-to-cache cache fromquery key-fn)
       (merge fromcache fromquery))))
-
-
-(defn- cache-update-multi
-  "Used by add, set, and replace functions which operate on map of key/value pairs.
-   Calls the updating function iteratively over each key/val pair, and returns a
-   map of key to Future<Boolean>, where the boolean indicates whether the val
-   associated with the key was added."
-  [cache-updating-fctn mc key-val-map exp]
-  (reduce #(assoc %1 (first %2) (second %2)) {}
-          (map (fn [k_v] [(first k_v) (cache-updating-fctn mc (first k_v) (second k_v) exp)]) key-val-map)))
-
-
-
-(extend-type net.spy.memcached.MemcachedClient
-  Memcache
-  (default-exp [mc] DEFAULT-EXP)
-  
-  (put-if-absent
-    ([mc key value]
-       (put-if-absent mc key value DEFAULT-EXP))
-    ([mc key value exp]
-       (.. mc (add key exp value))))
-  
-  (put-all-if-absent
-    ([mc key-val-map]
-       (put-all-if-absent mc key-val-map DEFAULT-EXP))
-    ([mc key-val-map exp]
-       (cache-update-multi put-if-absent mc key-val-map exp)))
-  
-  (put
-    ([mc key value]
-       (.. mc (set key DEFAULT-EXP value)))
-    ([mc key value exp]
-       (.. mc (set key exp value))))
-  
-  (put-all
-    ([mc key-val-map] (put-all mc key-val-map DEFAULT-EXP))
-    ([mc key-val-map exp]
-       (cache-update-multi put mc key-val-map exp)))
-  
-  (put-if-present
-    ([mc key value] (put-if-present mc key value DEFAULT-EXP))
-    ([mc key value exp]
-       (.. mc (replace key exp value))))
-  
-  (put-all-if-present
-    ([mc key-val-map] (put-all-if-present mc key-val-map DEFAULT-EXP))
-    ([mc key-val-map exp]
-       (cache-update-multi put-if-present mc key-val-map exp)))
-
-  (delete [mc key]
-    (.. mc (delete key)))
-  
-  (delete-all [mc keys]
-    (doall (map #(delete mc %) keys)))
-
-  (incr
-    ([mc key]
-       (.. mc (incr key 1)))
-    ([mc key by]
-       (.. mc (incr key by)))
-    ([mc key by default]
-       (.. mc (incr key by default)))
-    ([mc key by default exp]
-       (.. mc (incr key by default exp))))
-  
-  (decr
-    ([mc key]
-       (.. mc (decr key 1)))
-    ([mc key by]
-       (.. mc (decr key by)))
-    ([mc key by default]
-       (.. mc (decr key by default)))
-    ([mc key by default exp]
-       (.. mc (decr key by default exp))))
-  
-  (fetch [mc key]
-    (.. mc (get key)))
-
-  (fetch-all [mc keys]
-    (into {} (.. mc (getBulk keys)))) 
-
-  (clear [mc] (.. mc (flush)))
-
-  )
-
-
-
-
 
 
 
@@ -287,15 +178,15 @@
   
   (put-if-absent
    [this key value exp]
-   (.. mc (add key exp value)))
+   (put-if-absent mc key value exp))
   
   (put-if-absent
    [this key value]
-   (.. mc (add key DEFAULT-EXP value)))
+   (put-if-absent mc key value))
   
   (put-all-if-absent
    [this key-val-map]
-   (put-all-if-absent this key-val-map DEFAULT-EXP))
+   (put-all-if-absent mc key-val-map))
   
   (put-all-if-absent
    [this key-val-map exp]
@@ -303,10 +194,10 @@
   
   (put
    [this key value]
-   (.. mc (set key DEFAULT-EXP value)))
+   (put mc key value))
   (put
    [this key value exp]
-   (.. mc (set key exp value)))
+   (put mc key value exp))
   
   (put-all
    [this key-val-map]
@@ -322,7 +213,7 @@
 
   (put-if-present
    [this key value exp]
-   (.. mc (replace key exp value)))
+   (put-if-present mc key value exp))
   
   (put-all-if-present
    [this key-val-map]
@@ -334,44 +225,27 @@
 
   (delete
    [this key]
-   (.. mc (delete key)))
+   (delete mc key))
   
   (delete-all
    [this keys]
    (doall (map #(delete this %) keys)))
 
-  (incr [this key]
-        (.. mc (incr key 1)))
-  (incr [this key by]
-        (.. mc (incr key by)))
-  (incr [this key by default]
-        (.. mc (incr key by default)))
-  (incr [this key by default exp]
-        (.. mc (incr key by default exp)))
-  
-  (decr [this key]
-        (.. mc (decr key 1)))
-  (decr [this key by]
-        (.. mc (decr key by)))
-  (decr [this key by default]
-        (.. mc (decr key by default)))
-  (decr [this key by default exp]
-        (.. mc (decr key by default exp)))
-  
   (fetch
    [this key]
-   (.. mc (get key)))
+   (fetch mc key))
   
   (fetch-all
    [this keys]
-   (into {} (.. mc (getBulk keys)))) 
+   (fetch-all mc keys)) 
 
-  (clear [this] (.. mc (flush)))
+  (clear
+   [this]
+   (clear mc)))
 
-  )
 
-
-(defn make-memcached-cache
-  ([mc] (make-memcached-cache mc (* 60 60 24 30)) )
-  ([mc expiration] (MemcachedCache. mc expiration)))
+(defn memcached-cache-factory
+  "Returns a memcached-based cache using the given memcached client object"
+  ([mc-client] (memcached-cache-factory mc-client (* 60 60 24 30)) )
+  ([mc-client expiration] (MemcachedCache. mc-client expiration)))
 

@@ -1,12 +1,12 @@
 (ns mcache.test.cache
-  (:use [mcache.cache])
-  (:use [clojure.test])
+  (:use [mcache.core]
+        [mcache.spy]
+        [clojure.test])
   (:import [clojure.core.cache CacheProtocol]
-           [mcache.cache MemcachedCache])
-)
+           [mcache.core MemcachedCache]))
 
 (def spy (net.spy.memcached.MemcachedClient. (list (java.net.InetSocketAddress. "127.0.0.1" 11211))))
-(def mc (make-memcached-cache spy))
+(def cache (memcached-cache-factory spy))
 
 (defn clear-cache-fixture
   "Flushes the cache before and after. NOTE: Flush is asynchronous, so
@@ -14,9 +14,9 @@
   between tests. An acceptable workaround is to avoid using the same keys in
   different tests."
   [f]
-  (clear mc)
+  (clear spy)
   (f)
-  (clear mc))
+  (clear spy))
 
 (use-fixtures :each clear-cache-fixture)
 
@@ -116,21 +116,6 @@
       (is (true? (.get (nth resp 1))))
       (is (false? (.get (nth resp 2))))))
 
-(defn do-test-incr [mc]
-    (is (= -1 (incr mc "n")))
-    (.get (put mc "n" "0"))
-    (is (= 1 (incr mc "n")))
-    (is (= 11 (incr mc "n" 10)))
-    (is (= 0 (incr mc "m" 1 0))))
-
-(defn do-test-decr [mc]
-    (is (= -1 (decr mc "nn")))
-    (.get (put mc "nn" 0))
-    (is (= 0 (decr mc "nn")))
-    (is (= 10 (decr mc "mm" 1 10)))
-    (is (= 9 (decr mc "mm")))
-    (is (= 6 (decr mc "mm" 3))))
-
 (defn do-test-get-all [mc]
     (.get (put mc "a" 1))
     (.get (put mc "b" 2))
@@ -152,26 +137,26 @@
       (is (= "foo50" (with-cache mc "50" qfcn)))))
 
 
-(defn do-test-cache-fetch [mc]
+(defn do-test-cache-backed-lookup [mc]
     (letfn [(qfcn [id]
               (if (< id 100)
                 (str "foo" id)
                 nil))]
-      (is (nil? (cache-fetch mc 200 qfcn str)))
-      (is (= "foo50" (cache-fetch mc 50 qfcn str)))
+      (is (nil? (cache-backed-lookup mc 200 qfcn str)))
+      (is (= "foo50" (cache-backed-lookup mc 50 qfcn str)))
       (is (= "foo50" (fetch mc "50")))
-      (is (= "foo50" (cache-fetch mc 50 qfcn str)))))
+      (is (= "foo50" (cache-backed-lookup mc 50 qfcn str)))))
 
-(defn do-test-cache-fetch-all [mc]
+(defn do-test-cache-backed-lookup-all [mc]
     (letfn [(qfcn [ids]
               (zipmap ids (map 
                       #(if (< % 100)
                         (str "foo" %)
                         nil) ids)))]
       (is (= {1 "foo1" 4 "foo4" 5 "foo5" 6 "foo6"}
-             (cache-fetch-all mc [1 4 120 5 300 6] qfcn str)))
+             (cache-backed-lookup-all mc [1 4 120 5 300 6] qfcn str)))
       (is (= {1 "foo1" 5 "foo5" 19 "foo19"}
-             (cache-fetch-all mc [1 120 5 19] qfcn str)))))
+             (cache-backed-lookup-all mc [1 120 5 19] qfcn str)))))
 
 
 ;;;;;;;;;;;;;;;;;;;
@@ -210,14 +195,6 @@
   (testing "Delete all"
     (do-test-delete-all spy)))
 
-(deftest test-incr
-  (testing "Increment"
-    (do-test-incr spy)))
-
-(deftest test-decr
-  (testing "Decrement"
-    (do-test-decr spy)))
-
 (deftest test-get-all
   (testing "Get list of keys"
     (do-test-get-all spy)))
@@ -226,13 +203,13 @@
   (testing "with-cache macro"
     (do-test-with-cache spy)))
 
-(deftest test-cache-fetch
+(deftest test-cache-backed-lookup
   (testing "Cached fetch"
-    (do-test-cache-fetch spy)))
+    (do-test-cache-backed-lookup spy)))
 
-(deftest test-cache-fetch-all
+(deftest test-cache-backed-lookup-all
   (testing "Cached fetch"
-    (do-test-cache-fetch-all spy)))
+    (do-test-cache-backed-lookup-all spy)))
 
 
 ;; now test MemcachedCache, which integrates the same functionality
@@ -240,62 +217,54 @@
 
 (deftest test-lookup-cache
   (testing "lookup"
-    (do-test-lookup mc)))
+    (do-test-lookup cache)))
 
 (deftest test-put-if-absent-cache
   (testing "put-if-absent"
-    (do-test-put-if-absent mc)))
+    (do-test-put-if-absent cache)))
 
 (deftest test-put-all-if-absent-cache
   (testing "Add multiple items to cache"
-    (do-test-put-all-if-absent mc)))
+    (do-test-put-all-if-absent cache)))
 
 (deftest test-put-cache
   (testing "Put into cache"
-    (do-test-put mc)))
+    (do-test-put cache)))
 
 (deftest test-put-all-cache
   (testing "Put multiple into cache"
-    (do-test-put-all mc)))
+    (do-test-put-all cache)))
 
 (deftest test-put-if-present-cache
   (testing "Replace in cache" 
-    (do-test-put-if-present mc)))
+    (do-test-put-if-present cache)))
 
 (deftest test-put-all-if-present  ;;;;;
   (testing "Replace multiple"
-    (do-test-put-all-if-present mc)))
+    (do-test-put-all-if-present cache)))
 
 (deftest test-delete-cache
   (testing "Delete"
-    (do-test-delete mc)))
+    (do-test-delete cache)))
 
 (deftest test-delete-all-cache
   (testing "Delete all"
-    (do-test-delete-all mc)))
-
-(deftest test-incr-cache
-  (testing "Increment"
-    (do-test-incr mc)))
-
-(deftest test-decr-cache
-  (testing "Decrement"
-    (do-test-decr mc)))
+    (do-test-delete-all cache)))
 
 (deftest test-get-all-cache
   (testing "Get list of keys"
-    (do-test-get-all mc)))
+    (do-test-get-all cache)))
 
 (deftest test-with-cache-cache
   (testing "with-cache macro"
-    (do-test-with-cache mc)))
+    (do-test-with-cache cache)))
 
-(deftest test-cache-fetch-cache
+(deftest test-cache-backed-lookup-cache
   (testing "Cached fetch"
-    (do-test-cache-fetch mc)))
+    (do-test-cache-backed-lookup cache)))
 
-(deftest test-cache-fetch-all-cache
+(deftest test-cache-backed-lookup-all-cache
   (testing "Cached fetch"
-    (do-test-cache-fetch-all mc)))
+    (do-test-cache-backed-lookup-all cache)))
 
 
