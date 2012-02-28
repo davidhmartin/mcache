@@ -131,10 +131,10 @@
               (if (< (Integer/parseInt id) 100)
                 (str "foo" id)
                 nil))]
-      (is (nil? (with-cache mc "200" qfcn)))
-      (is (= "foo50" (with-cache mc "50" qfcn)))
+      (is (nil? (with-cache mc "200" (qfcn "200"))))
+      (is (= "foo50" (with-cache mc "50" (qfcn "50"))))
       (is (= "foo50" (fetch mc "50")))
-      (is (= "foo50" (with-cache mc "50" qfcn)))))
+      (is (= "foo50" (with-cache mc "50" (qfcn 50))))))
 
 
 (defn do-test-cache-backed-lookup [mc]

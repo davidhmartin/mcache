@@ -71,22 +71,22 @@
   (clear [mc] "clear the cache"))
 
 (defmacro with-cache
-  "key is a string, value-fn is a function. Returns keyed value from cache;
-   if not found, uses value-fn to obtain the value and adds it to cache
+  "key is a string, value is an sexpr. Returns keyed value from cache;
+   if not found, uses value to obtain the value and adds it to cache
    before returning."
-  ([cache key value-fn]
+  ([cache key value]
       `(if-let [cached-val# (fetch ~cache ~key)]
          cached-val#
-         (let [val# (~value-fn ~key)]
+         (let [val# ~value]
            (if (nil? val#)
              nil
              (if (.get (put-if-absent ~cache ~key val#))
                val# 
                (fetch ~cache ~key))))))
-  ([cache key value-fn exp]
+  ([cache key value exp]
       `(if-let [cached-val# (fetch ~cache ~key)]
          cached-val#
-         (let [val# (~value-fn ~key)]
+         (let [val# ~value]
            (if (nil? val#)
              nil
              (if (.get (put-if-absent ~cache ~key val# ~exp))
