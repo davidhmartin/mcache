@@ -1,4 +1,4 @@
-(defproject mcache "0.1.0"
+(defproject mcache "0.2.0"
   :description "A protocol-based interface to memory cache clients."
   :url "https://github.com/davidhmartin/mcache"
   :dependencies [[org.clojure/clojure "1.2.1"]

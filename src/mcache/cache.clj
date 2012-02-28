@@ -17,9 +17,7 @@
    follow the memcached protocol, wherein the time unit is seconds,
    and a value between 1 and 30 days is treated as time-to-live,
    and any higher value is treated as a unix-style timestamp (seconds
-   since Jan 1 1970).
-
-   "
+   since Jan 1 1970)."
 
   (default-exp [mc]
     "Return the default expiration")
@@ -86,33 +84,37 @@
   (fetch-all
     [mc keys]
     "Gets values for keys. Returns a map of keys to values, omitting
-    keys that are not in the cache."))
+    keys that are not in the cache.")
+
+  (clear [mc] "clear the cache")
+
+  )
 
 (defmacro with-cache
   "key is a string, value-fn is a function. Returns keyed value from cache;
    if not found, uses value-fn to obtain the value and adds it to cache
    before returning."
   ([cache key value-fn]
-      `(if-let [cached-val# (.lookup ~cache ~key)]
+      `(if-let [cached-val# (fetch ~cache ~key)]
          cached-val#
          (let [val# (~value-fn ~key)]
            (if (nil? val#)
              nil
-             (if (.get (.put-if-absent ~cache ~key val#))
+             (if (.get (put-if-absent ~cache ~key val#))
                val# 
-               (.lookup ~cache ~key))))))
+               (fetch ~cache ~key))))))
   ([cache key value-fn exp]
-      `(if-let [cached-val# (.lookup ~cache ~key)]
+      `(if-let [cached-val# (fetch ~cache ~key)]
          cached-val#
          (let [val# (~value-fn ~key)]
            (if (nil? val#)
              nil
-             (if (.get (.put-if-absent ~cache ~key val# ~exp))
+             (if (.get (put-if-absent ~cache ~key val# ~exp))
                val#
-               (.lookup ~cache ~key)))))))
+               (fetch ~cache ~key)))))))
 
 (defn cache-fetch
- ([cache id query-fn key-fn] (cache-fetch cache id query-fn key-fn (.default-exp cache)))
+ ([cache id query-fn key-fn] (cache-fetch cache id query-fn key-fn (default-exp cache)))
  ([cache id query-fn key-fn exp]
     "To be used in conjunction with a persistent storage api. 'id' is
     a unique identifier (e.g. a primary key) for a persisted object.
@@ -122,10 +124,10 @@
     will first attempt to locate the object in cache; if not found, it
     uses query-fn to get the object and caches it before returning.
     Returns nil if object is not found at all."
-    (if-let [cached-obj (.lookup cache (key-fn id))]
+    (if-let [cached-obj (fetch cache (key-fn id))]
       cached-obj
       (when-let [obj (query-fn id)]
-        (.put-if-absent cache (key-fn id) obj exp)
+        (put-if-absent cache (key-fn id) obj exp)
         obj))))
 
 (defn- remove-nil-vals [map]
@@ -140,7 +142,7 @@
   (letfn [(add-to-cache
             [cache id2val key-fn]
             (doseq [[id val] id2val]
-              (.put-if-absent cache (key-fn id) val)))
+              (put-if-absent cache (key-fn id) val)))
           (from-cache
             [cache ids key-fn]
             (let [keys (map key-fn ids)]
@@ -160,6 +162,86 @@
   [cache-updating-fctn mc key-val-map exp]
   (reduce #(assoc %1 (first %2) (second %2)) {}
           (map (fn [k_v] [(first k_v) (cache-updating-fctn mc (first k_v) (second k_v) exp)]) key-val-map)))
+
+
+
+(extend-type net.spy.memcached.MemcachedClient
+  Memcache
+  (default-exp [mc] DEFAULT-EXP)
+  
+  (put-if-absent
+    ([mc key value]
+       (put-if-absent mc key value DEFAULT-EXP))
+    ([mc key value exp]
+       (.. mc (add key exp value))))
+  
+  (put-all-if-absent
+    ([mc key-val-map]
+       (put-all-if-absent mc key-val-map DEFAULT-EXP))
+    ([mc key-val-map exp]
+       (cache-update-multi put-if-absent mc key-val-map exp)))
+  
+  (put
+    ([mc key value]
+       (.. mc (set key DEFAULT-EXP value)))
+    ([mc key value exp]
+       (.. mc (set key exp value))))
+  
+  (put-all
+    ([mc key-val-map] (put-all mc key-val-map DEFAULT-EXP))
+    ([mc key-val-map exp]
+       (cache-update-multi put mc key-val-map exp)))
+  
+  (put-if-present
+    ([mc key value] (put-if-present mc key value DEFAULT-EXP))
+    ([mc key value exp]
+       (.. mc (replace key exp value))))
+  
+  (put-all-if-present
+    ([mc key-val-map] (put-all-if-present mc key-val-map DEFAULT-EXP))
+    ([mc key-val-map exp]
+       (cache-update-multi put-if-present mc key-val-map exp)))
+
+  (delete [mc key]
+    (.. mc (delete key)))
+  
+  (delete-all [mc keys]
+    (doall (map #(delete mc %) keys)))
+
+  (incr
+    ([mc key]
+       (.. mc (incr key 1)))
+    ([mc key by]
+       (.. mc (incr key by)))
+    ([mc key by default]
+       (.. mc (incr key by default)))
+    ([mc key by default exp]
+       (.. mc (incr key by default exp))))
+  
+  (decr
+    ([mc key]
+       (.. mc (decr key 1)))
+    ([mc key by]
+       (.. mc (decr key by)))
+    ([mc key by default]
+       (.. mc (decr key by default)))
+    ([mc key by default exp]
+       (.. mc (decr key by default exp))))
+  
+  (fetch [mc key]
+    (.. mc (get key)))
+
+  (fetch-all [mc keys]
+    (into {} (.. mc (getBulk keys)))) 
+
+  (clear [mc] (.. mc (flush)))
+
+  )
+
+
+
+
+
 
 
 (defcache MemcachedCache [mc exp]
@@ -221,7 +303,6 @@
   
   (put
    [this key value]
-   (println "put value: " value " of type: " (class value)) 
    (.. mc (set key DEFAULT-EXP value)))
   (put
    [this key value exp]
@@ -284,6 +365,8 @@
   (fetch-all
    [this keys]
    (into {} (.. mc (getBulk keys)))) 
+
+  (clear [this] (.. mc (flush)))
 
   )
 
